@@ -3,6 +3,7 @@
 [English](README.md) | 中文
 
 这是 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 Plus 版本，在原有基础上增加了第三方供应商的支持。
+也支持通过配置接入上游 OpenAI 兼容提供商（例如 OpenRouter、Cerebras）。
 
 所有的第三方供应商支持都由第三方社区维护者提供，CLIProxyAPI 不提供技术支持。如需取得支持，请与对应的社区维护者联系。
 
@@ -81,6 +82,23 @@ server:
 
 # 在此添加你的供应商配置
 ```
+
+## Cerebras（OpenAI 兼容）接入
+
+在 `config.yaml` 中配置 `openai-compatibility`（示例）：
+
+```yaml
+openai-compatibility:
+  - name: "cerebras"
+    base-url: "https://api.cerebras.ai/v1"
+    api-key-entries:
+      - api-key: "csk-..."
+    models:
+      - name: "zai-glm-4.7"
+        alias: "zai-glm-4.7"
+```
+
+GLM 系列（例如 `zai-glm-4.7`）不支持 `reasoning_effort`，如需关闭推理请传 `disable_reasoning: true`（或使用模型后缀 `(none)`）。
 
 ### 更新到最新版本
 
