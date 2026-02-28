@@ -105,12 +105,26 @@ func createReverseProxy(upstreamURL string, secretSource SecretSource) (*httputi
 	// Modify incoming responses to handle gzip without Content-Encoding
 	// This addresses the same issue as inline handler gzip handling, but at the proxy level
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		if resp == nil {
+			return nil
+		}
+		method := "UNKNOWN"
+		path := ""
+		if resp.Request != nil {
+			if resp.Request.Method != "" {
+				method = resp.Request.Method
+			}
+			if resp.Request.URL != nil {
+				path = resp.Request.URL.Path
+			}
+		}
+
 		// Log upstream error responses for diagnostics (502, 503, etc.)
 		// These are NOT proxy connection errors - the upstream responded with an error status
 		if resp.StatusCode >= 500 {
-			log.Errorf("amp upstream responded with error [%d] for %s %s", resp.StatusCode, resp.Request.Method, resp.Request.URL.Path)
+			log.Errorf("amp upstream responded with error [%d] for %s %s", resp.StatusCode, method, path)
 		} else if resp.StatusCode >= 400 {
-			log.Warnf("amp upstream responded with client error [%d] for %s %s", resp.StatusCode, resp.Request.Method, resp.Request.URL.Path)
+			log.Warnf("amp upstream responded with client error [%d] for %s %s", resp.StatusCode, method, path)
 		}
 
 		// Only process successful responses for gzip decompression
@@ -130,6 +144,9 @@ func createReverseProxy(upstreamURL string, secretSource SecretSource) (*httputi
 
 		// Save reference to original upstream body for proper cleanup
 		originalBody := resp.Body
+		if originalBody == nil {
+			return nil
+		}
 
 		// Peek at first 2 bytes to detect gzip magic bytes
 		header := make([]byte, 2)
@@ -213,13 +230,11 @@ func createReverseProxy(upstreamURL string, secretSource SecretSource) (*httputi
 			errType = "connection_error"
 		}
 
-		// Don't log as error for context canceled - it's usually client closing connection
 		if errors.Is(err, context.Canceled) {
 			log.Debugf("amp upstream proxy [%s]: client canceled request for %s %s", errType, req.Method, req.URL.Path)
-		} else {
-			log.Errorf("amp upstream proxy error [%s] for %s %s: %v", errType, req.Method, req.URL.Path, err)
+			return
 		}
-
+		log.Errorf("amp upstream proxy error [%s] for %s %s: %v", errType, req.Method, req.URL.Path, err)
 		rw.Header().Set("Content-Type", "application/json")
 		rw.WriteHeader(http.StatusBadGateway)
 		_, _ = rw.Write([]byte(`{"error":"amp_upstream_proxy_error","message":"Failed to reach Amp upstream"}`))
