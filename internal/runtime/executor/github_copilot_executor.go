@@ -203,7 +203,7 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 }
 
 // ExecuteStream handles streaming requests to GitHub Copilot.
-func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (stream <-chan cliproxyexecutor.StreamChunk, err error) {
+func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
 	apiToken, errToken := e.ensureAPIToken(ctx, auth)
 	if errToken != nil {
 		return nil, errToken
@@ -292,7 +292,7 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 	}
 
 	out := make(chan cliproxyexecutor.StreamChunk)
-	stream = out
+	headers := httpResp.Header.Clone()
 
 	go func() {
 		defer close(out)
@@ -340,7 +340,10 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 		}
 	}()
 
-	return stream, nil
+	return &cliproxyexecutor.StreamResult{
+		Headers: headers,
+		Chunks:  out,
+	}, nil
 }
 
 // CountTokens is not supported for GitHub Copilot.
