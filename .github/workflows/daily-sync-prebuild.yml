@@ -1,0 +1,87 @@
+name: daily-sync-prebuild
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 09:00 Asia/Shanghai every day
+    - cron: '0 1 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-sync-prebuild
+  cancel-in-progress: false
+
+env:
+  TARGET_BRANCH: cerebras-glm-thinking-plus
+  UPSTREAM_BRANCH: origin/main
+  PREBUILT_DIR: prebuilt
+
+jobs:
+  sync-build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge latest main into target branch
+        run: |
+          git fetch origin main
+          git merge --no-edit "${UPSTREAM_BRANCH}"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build prebuilt binaries
+        run: |
+          set -euo pipefail
+          VERSION="$(git describe --tags --always --dirty 2>/dev/null || git rev-parse --short HEAD)"
+          COMMIT="$(git rev-parse --short HEAD)"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          rm -rf "${PREBUILT_DIR}"
+          mkdir -p "${PREBUILT_DIR}"
+
+          COMMON_LDFLAGS="-s -w -X main.Version=${VERSION}-plus -X main.Commit=${COMMIT} -X main.BuildDate=${BUILD_DATE}"
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -trimpath -ldflags "${COMMON_LDFLAGS}" \
+            -o "${PREBUILT_DIR}/cli-proxy-api-plus-darwin-arm64" ./cmd/server
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "${COMMON_LDFLAGS}" \
+            -o "${PREBUILT_DIR}/cli-proxy-api-plus-linux-amd64" ./cmd/server
+
+          {
+            echo "VERSION=${VERSION}-plus"
+            echo "COMMIT=${COMMIT}"
+            echo "BUILD_DATE=${BUILD_DATE}"
+          } > "${PREBUILT_DIR}/BUILD_INFO.txt"
+
+          sha256sum \
+            "${PREBUILT_DIR}/cli-proxy-api-plus-darwin-arm64" \
+            "${PREBUILT_DIR}/cli-proxy-api-plus-linux-amd64" \
+            > "${PREBUILT_DIR}/SHA256SUMS"
+
+      - name: Commit and push changes
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: sync main and refresh prebuilt binaries"
+          git push origin "HEAD:${TARGET_BRANCH}"
